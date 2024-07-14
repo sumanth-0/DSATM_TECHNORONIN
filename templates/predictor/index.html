@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phishing Detection</title>
+    <!-- Include jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" href="{% static "predictor/style.css" %}">
+  </head>
+  <body>
+    <div class="form-container sign-in-container">
+      <form id="prediction-form" class="formcss">
+        {% csrf_token %}
+        <h1>Are you Safe?</h1>
+        <input type="type" id="text" name="text" placeholder="Enter URL" />
+        <button type="submit">Check</button>
+      </form>
+    </div>
+    <div class="overlay-container">
+      <div class="overlay">
+        <div class="overlay-panel overlay-left"></div>
+        <div class="overlay-panel overlay-right">
+          <h1 id="checkText">Let's Check!</h1>
+          <div class="gauge-container">
+            <canvas id="gauge" width="250" height="190"></canvas>
+            <div id="gaugeRangeText" class="gauge-range-text"></div>
+          </div>
+          <p id="prediction"></p>
+          <div id="feedback-buttons" style="display: none">
+            <p id="weRight">Are we Right?</p>
+            <button id="feedback-yes">Yes</button>
+            <button id="feedback-no">No</button>
+            <p>Your feedback matters to us :)</p>
+          </div>
+        </div>
+        <div></div>
+      </div>
+    </div>
+    <div></div>
+    <div class="landing">
+      <p id="landingintro"></p>
+      <p id="landingInfo">
+      </p>
+    </div>
+
+    <script>
+      $(document).ready(function () {
+        const canvas = document.getElementById("gauge");
+        const ctx = canvas.getContext("2d");
+        const gaugeRangeText = document.getElementById("gaugeRangeText");
+        const feedbackButtons = document.getElementById("feedback-buttons");
+        const thankYouMessage = document.createElement("p");
+
+        thankYouMessage.innerText = "Thank you for your feedback!";
+        thankYouMessage.style.display = "none"; // Hide initially
+        feedbackButtons.parentNode.insertBefore(
+          thankYouMessage,
+          feedbackButtons.nextSibling
+        );
+
+        // Hardcoded initial value for the gauge
+        let currentValue = 0; // Initial value for animation
+
+        // Animation parameters
+        const animationDuration = 3000; // Duration of animation in milliseconds
+        let animationStart = null; // Variable to store animation start time
+
+        function updateGauge(value) {
+          animateGauge(value);
+          updateGaugeRange(value);
+        }
+
+        function animateGauge(targetValue) {
+          // Set animation start time if not already set
+          if (animationStart === null) {
+            animationStart = performance.now();
+          }
+
+          // Calculate elapsed time since animation start
+          const elapsedTime = performance.now() - animationStart;
+
+          // Calculate progress from 0 to 1
+          const progress = Math.min(elapsedTime / animationDuration, 1);
+
+          // Interpolate current value based on progress
+          currentValue = Math.floor(
+            progress * (targetValue - currentValue) + currentValue
+          );
+
+          // Draw gauge with current value
+          drawGauge(currentValue);
+
+          // Request next frame if animation is not finished
+          if (progress < 1) {
+            requestAnimationFrame(() => animateGauge(targetValue));
+          } else {
+            // Animation finished, reset animation variables
+            animationStart = null;
+          }
+        }
+
+        function drawGauge(value) {
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height;
+          const radius = canvas.width / 2 - 10;
+
+          // Clear canvas
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          // Draw gauge background
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, Math.PI, 2 * Math.PI);
+          ctx.lineWidth = 25;
+          ctx.strokeStyle = "#ddd";
+          ctx.stroke();
+
+          // Draw gauge value
+          const startAngle = Math.PI;
+          const endAngle = (value / 100) * Math.PI + startAngle;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+          ctx.lineWidth = 24;
+          ctx.strokeStyle = getColor(value);
+          ctx.stroke();
+
+          // Draw pointer
+          const pointerLength = radius - 40;
+          const pointerX = centerX + pointerLength * Math.cos(endAngle);
+          const pointerY = centerY + pointerLength * Math.sin(endAngle);
+
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(pointerX, pointerY);
+          ctx.lineWidth = 15;
+          ctx.strokeStyle = "#333";
+          ctx.stroke();
+        }
+
+        function getColor(value) {
+          if (value < 20) {
+            return "#00ff00"; // Low - Green
+          } else if (value < 40) {
+            return "#66ff33"; // Low to Moderate - Light Green
+          } else if (value < 60) {
+            return "#ffff00"; // Moderate - Yellow
+          } else if (value < 80) {
+            return "#ff9900"; // Moderate to High - Orange
+          } else {
+            return "#ff0000"; // High - Red
+          }
+        }
+
+        function updateGaugeRange(value) {
+          if (value < 20) {
+            gaugeRangeText.innerText = `Low ${value}%`;
+          } else if (value < 40) {
+            gaugeRangeText.innerText = `Low to Moderate ${value}%`;
+          } else if (value < 60) {
+            gaugeRangeText.innerText = `Moderate ${value}%`;
+          } else if (value < 80) {
+            gaugeRangeText.innerText = `Moderate to High ${value}%`;
+          } else {
+            gaugeRangeText.innerText = `High ${value}%`;
+          }
+        }
+
+        // Handle form submission
+        $("#prediction-form").on("submit", function (event) {
+          event.preventDefault();
+          thankYouMessage.style.display = "none"; // Hide thank you message when a new prediction is requested
+          var text = $("#text").val();
+          $.ajax({
+            type: "POST",
+            url: "/predict/",
+            data: {
+              text: text,
+              csrfmiddlewaretoken: $("input[name=csrfmiddlewaretoken]").val(),
+            },
+            success: function (data) {
+              var prediction = data.prediction;
+              var percentage = data.percentage;
+              var featureImportances = data.feature_importances;
+              let metervalue = 0;
+              var featureImportancesStr = Object.entries(featureImportances)
+                .map(([feature, importance]) => `${feature}: ${importance}%`)
+                .join(",                             ");
+              if (prediction == 0) {
+                $("#prediction")
+                  .text(`The website is a phishing website ${percentage}`)
+                  .addClass("result-fake")
+                  .removeClass("result-real");
+                  $("#landingintro").text(featureImportancesStr)
+                metervalue = 50+percentage;
+              } else if (prediction == 1) {
+                $("#prediction")
+                  .text("The website is a legitimate website")
+                  .addClass("result-real")
+                  .removeClass("result-fake");
+                metervalue = percentage;
+              } else if (prediction == 2) {
+                $("#prediction")
+                  .text("The website is a defacement website")
+                  .addClass("result-fake")
+                  .removeClass("result-real");
+                metervalue = 50+percentage;
+              } else if (prediction == 3) {
+                $("#prediction")
+                  .text("The website is a malware website")
+                  .addClass("result-fake")
+                  .removeClass("result-real");
+                metervalue = 50+percentage;
+              }
+
+              // Start animation with the updated gauge value
+              updateGauge(metervalue);
+
+              // Show gauge and feedback buttons after prediction
+              $(".gauge-container").addClass("show");
+              $("#feedback-buttons").show();
+            },
+            error: function () {
+              console.log("Error occurred during prediction request.");
+            },
+          });
+        });
+
+        // Handle feedback buttons
+        $("#feedback-yes").click(function () {
+          saveFeedback({ url: $("#text").val(), feedback: "yes" });
+        });
+
+        $("#feedback-no").click(function () {
+          saveFeedback({ url: $("#text").val(), feedback: "no" });
+        });
+
+        // Function to save feedback to CSV file
+        function saveFeedback(data) {
+          $.ajax({
+            type: "POST",
+            url: "/save_feedback/", // Replace with your Django view URL for saving feedback
+            data: {
+              url: data.url,
+              feedback: data.feedback,
+              csrfmiddlewaretoken: $("input[name=csrfmiddlewaretoken]").val(),
+            },
+            success: function (response) {
+              console.log("Feedback saved successfully.");
+              console.log(response); // Log the response data
+              // Hide feedback buttons and show thank you message
+              $("#feedback-buttons").hide();
+              thankYouMessage.style.display = "block";
+            },
+            error: function (xhr, status, error) {
+              console.error("Error occurred while saving feedback:", error);
+            },
+          });
+        }
+
+        updateGauge(currentValue);
+      });
+    </script>
+  </body>
+</html>
